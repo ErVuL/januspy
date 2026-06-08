@@ -7,7 +7,7 @@ name = "januspy"
 version = "0.1.0"
 description = "Practical real-time JANUS underwater-acoustic modem with a web UI, wrapping the CMRE reference implementation."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { text = "GPL-3.0-only" }
 authors = [{ name = "ErVuL" }]
 dependencies = [
