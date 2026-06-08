@@ -59,7 +59,7 @@ The reference is a git **submodule** (the official
 the installer — this is the only step that needs internet:
 
 ```bash
-git clone --recursive <this-repo> januspy && cd januspy
+git clone --recursive https://github.com/ErVuL/januspy.git januspy && cd januspy
 ./install.sh
 .venv/bin/pip install -e .          # runtime only
 # or: .venv/bin/pip install -e ".[dev]"   # + pytest, to run the test suite
