@@ -61,16 +61,19 @@ the installer — this is the only step that needs internet:
 ```bash
 git clone --recursive <this-repo> januspy && cd januspy
 ./install.sh
+.venv/bin/pip install -e .          # runtime only
+# or: .venv/bin/pip install -e ".[dev]"   # + pytest, to run the test suite
 ```
 
-`install.sh` checks system deps, fetches/builds the C reference, creates `.venv`, and
-installs januspy editable. **After installation januspy runs fully offline** — no network
-is used at runtime (local reference binaries + local Python; the web UI bundles its own
-assets).
+`install.sh` checks system deps, fetches/builds the C reference, and creates `.venv`. It
+**does not** install the januspy Python package — that is a separate step you run yourself
+(the `pip install -e` above), so you can choose whether to include the `[dev]` test extras.
+Re-running `./install.sh` after the package is installed also probes live audio and runs a
+smoke test. **At runtime januspy is fully offline** — no network is used (local reference
+binaries + local Python; the web UI bundles its own assets).
 
 Already cloned without `--recursive`? `git submodule update --init --recursive` (or just
-re-run `./install.sh`, which does it for you). To install just the package into an active
-venv: `pip install -e .` from this directory (uses `pyproject.toml`).
+re-run `./install.sh`, which does it for you).
 
 ## Usage
 

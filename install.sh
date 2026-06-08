@@ -2,18 +2,22 @@
 #
 # install.sh — set up januspy: the real-time JANUS modem (web UI + CLI).
 #
-# Workflow:  git clone --recursive  ->  ./install.sh  (needs internet)  ->  run offline.
-# Installation downloads the C reference's submodule and pip dependencies; once installed,
-# januspy runs fully offline (local binaries + local Python, no network).
+# Workflow:  git clone --recursive  ->  ./install.sh  ->  pip install -e  ->  run offline.
+# Installation downloads the C reference's submodule; once installed, januspy runs fully
+# offline (local binaries + local Python, no network).
+#
+# NOTE: this script does NOT install the januspy Python package. After it finishes, run
+# the pip install yourself (it is a separate, external step):
+#     .venv/bin/pip install -e .         # runtime only
+#     .venv/bin/pip install -e ".[dev]"  # + test deps (pytest) for the suite / CI
 #
 # Idempotent. Steps:
 #   1. check system build deps (lists any that are missing, then stops)
 #   2. initialise the reference submodule if it wasn't cloned (--recursive)
 #   3. build the CMRE C reference (third_party/reference/c) if not already built
 #   4. create the Python venv (.venv) if missing
-#   5. pip install -e the januspy package (uses pyproject.toml)
-#   6. probe live-audio availability
-#   7. smoke-test the install
+#   5. probe live-audio availability (only if januspy is already installed)
+#   6. smoke-test the install (only if januspy is already installed)
 #
 # Usage:
 #   ./install.sh                   # full setup
@@ -104,11 +108,25 @@ fi
 VPY="$VENV/bin/python"
 "$VPY" -m pip install --quiet --upgrade pip setuptools wheel
 
-# --- 5. install januspy (editable, via pyproject.toml) ----------------------
-say "Installing januspy (pip install -e)"
-"$VPY" -m pip install -e "$ROOT"
+# --- januspy package install is an EXTERNAL step --------------------------------
+# The package install (and the choice of whether to pull in the [dev] test extras) is the
+# caller's / CI's responsibility, kept separate from this script. The audio probe and
+# smoke test below need the package importable, so skip them with instructions when it is
+# not yet installed.
+if ! "$VPY" -c "import januspy" >/dev/null 2>&1; then
+  cat <<EOF
 
-# --- 6. probe live-audio availability (accurate: actually load PortAudio) ----
+$(say "Reference built and venv ready. Next, install the januspy package yourself:")
+  $VENV/bin/pip install -e "$ROOT"          # runtime only
+  $VENV/bin/pip install -e "$ROOT"[dev]     # + pytest (for the test suite / CI)
+
+Then re-run ./install.sh to probe audio and run the smoke test, or just start januspy:
+  source "$VENV/bin/activate" && januspy --help
+EOF
+  exit 0
+fi
+
+# --- 5. probe live-audio availability (accurate: actually load PortAudio) ----
 audio=$("$VPY" - <<'PY' 2>/dev/null || true
 try:
     import sounddevice as sd
@@ -126,7 +144,7 @@ case "$audio" in
   *)      warn "Live mic/speaker audio unavailable — install libportaudio2 (apt: libportaudio2) to enable it. File decode, software loopback, and the web UI still work without it." ;;
 esac
 
-# --- 7. smoke test ----------------------------------------------------------
+# --- 6. smoke test ----------------------------------------------------------
 say "Smoke test (software loopback through the reference)"
 if [ -x "$REF_BIN/janus-tx" ]; then
   if "$VENV/bin/januspy" loopback "install.sh smoke test"; then

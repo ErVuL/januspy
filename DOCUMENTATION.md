@@ -72,21 +72,26 @@ step that needs internet**:
 ```bash
 git clone --recursive <repo> januspy && cd januspy
 ./install.sh
+.venv/bin/pip install -e .          # runtime only
+# or: .venv/bin/pip install -e ".[dev]"   # + pytest, to run the test suite
 ```
 
 `install.sh` (idempotent):
 1. checks build deps (`cmake`, `gcc`/`make`, `libfftw3`, `libsndfile`; warns on `libportaudio2`),
 2. initialises the reference submodule if you forgot `--recursive`,
 3. builds the C reference (Release) into `third_party/reference/c/local-install`,
-4. creates `.venv` and `pip install -e .`,
-5. runs a software-loopback smoke test.
+4. creates `.venv` (it does **not** install the januspy package),
+5. once the package is installed, probes live audio and runs a software-loopback smoke test.
+
+The januspy package install is a **separate step you run yourself** (the `pip install -e`
+above) so you can decide whether to pull in the `[dev]` test extras (pytest). Re-run
+`./install.sh` afterwards to get the audio probe and smoke test.
 
 **Runtime is fully offline.** After installation nothing reaches the network: the modem
 uses the local reference binaries and local Python, the web server binds to `127.0.0.1`,
 and the UI bundles its own fonts and assets (no CDNs, no web fonts, no telemetry).
 
-Options: `./install.sh --skip-reference`, `--venv PATH`. To install just the package into
-an active venv: `pip install -e .` (uses `pyproject.toml`).
+Options: `./install.sh --skip-reference`, `--venv PATH`.
 
 ## 4. The web UI
 
