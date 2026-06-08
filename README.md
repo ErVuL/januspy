@@ -50,7 +50,7 @@ stderr) is parsed into `Packet` / `RxState` objects.
 - The CMRE reference (vendored as a git submodule at `third_party/reference`, built by
   `install.sh` into `third_party/reference/c/local-install/bin/`). Set `$JANUSPY_REF` to override.
 - A C toolchain to build the reference: `cmake`, `gcc`/`make`, `libfftw3`, `libsndfile`.
-- Python ≥ 3.10, and for live audio: PortAudio (`libportaudio2`).
+- Python ≥ 3.12, and for live audio: PortAudio (`libportaudio2`).
 
 ## Install
 
