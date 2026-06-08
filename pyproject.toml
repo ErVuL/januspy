@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "januspy"
+version = "0.1.0"
+description = "Practical real-time JANUS underwater-acoustic modem with a web UI, wrapping the CMRE reference implementation."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-only" }
+authors = [{ name = "ErVuL" }]
+dependencies = [
+    "numpy",
+    "scipy",
+    "soundfile",
+    "sounddevice",
+    "fastapi",
+    "uvicorn[standard]",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+januspy = "januspy.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["januspy*"]
+
+[tool.setuptools.package-data]
+januspy = ["web/*", "web/fonts/*", "data/*"]

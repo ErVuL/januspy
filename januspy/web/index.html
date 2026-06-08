@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>januspy · JANUS sonar modem</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<style>
+  /* Local, offline-bundled fonts (no network at runtime). */
+  @font-face { font-family:'Plex Mono'; font-weight:400; font-display:swap;
+    src:url('/static/fonts/plex-mono-400.woff2') format('woff2'); }
+  @font-face { font-family:'Plex Mono'; font-weight:500; font-display:swap;
+    src:url('/static/fonts/plex-mono-500.woff2') format('woff2'); }
+  @font-face { font-family:'Plex Sans'; font-weight:400; font-display:swap;
+    src:url('/static/fonts/plex-sans-400.woff2') format('woff2'); }
+  @font-face { font-family:'Plex Sans'; font-weight:600; font-display:swap;
+    src:url('/static/fonts/plex-sans-600.woff2') format('woff2'); }
+
+  :root{
+    --abyss:#050a0f; --abyss2:#071019; --panel:#0a1722; --panel-hi:#0e2030;
+    --line:rgba(120,190,205,.12); --line-hi:rgba(120,190,205,.22);
+    --ink:#d3e7e9; --dim:#6d8993; --faint:#46606a;
+    --phos:#2ee6c0; --phos-deep:#0e9b88; --amber:#ffb24a; --coral:#ff5d6c; --sea:#3aa0d8;
+    --mono:'Plex Mono',ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace;
+    --sans:'Plex Sans',ui-sans-serif,system-ui,sans-serif;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0; font-family:var(--sans); color:var(--ink); background:var(--abyss);
+    background-image:
+      radial-gradient(120% 80% at 80% -10%, rgba(46,230,192,.06), transparent 60%),
+      radial-gradient(90% 70% at -10% 110%, rgba(58,160,216,.06), transparent 60%);
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{ background:rgba(46,230,192,.3); color:#03100d; }
+  /* faint scanline texture overlay */
+  body::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:50; opacity:.35;
+    background:repeating-linear-gradient(0deg, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.18) 2px 3px); mix-blend-mode:overlay; }
+
+  /* header */
+  header{ display:flex; align-items:center; gap:18px; padding:13px 20px;
+    border-bottom:1px solid var(--line); background:linear-gradient(180deg,var(--abyss2),transparent); }
+  .brand{ font-family:var(--mono); font-weight:500; font-size:15px; letter-spacing:.18em; text-transform:uppercase; }
+  .brand b{ color:var(--phos); font-weight:500; }
+  .brand .slash{ color:var(--faint); margin:0 .35em; }
+  .live{ display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:11px;
+    letter-spacing:.16em; text-transform:uppercase; color:var(--dim);
+    border:1px solid var(--line); border-radius:2px; padding:4px 10px; }
+  .dot{ width:8px; height:8px; border-radius:50%; background:var(--faint); box-shadow:0 0 0 0 transparent; }
+  .live.on{ color:var(--phos); border-color:var(--phos-deep); }
+  .live.on .dot{ background:var(--phos); animation:ping 1.6s ease-out infinite; }
+  @keyframes ping{ 0%{ box-shadow:0 0 0 0 rgba(46,230,192,.5);} 70%{ box-shadow:0 0 0 7px rgba(46,230,192,0);} 100%{ box-shadow:0 0 0 0 rgba(46,230,192,0);} }
+  .chip{ font-family:var(--mono); font-size:11px; letter-spacing:.1em; color:var(--dim);
+    border:1px solid var(--line); border-radius:2px; padding:4px 10px; }
+  .grow{ flex:1; }
+  .ref{ font-family:var(--mono); font-size:10.5px; color:var(--faint); letter-spacing:.04em; max-width:38vw;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  main{ display:grid; grid-template-columns:360px 1fr; height:calc(100vh - 52px); }
+  .rail{ border-right:1px solid var(--line); background:var(--abyss2); overflow-y:auto; padding:6px 0 30px; }
+  .rail::-webkit-scrollbar,.feed::-webkit-scrollbar,.console::-webkit-scrollbar{ width:9px; }
+  .rail::-webkit-scrollbar-thumb,.feed::-webkit-scrollbar-thumb,.console::-webkit-scrollbar-thumb{ background:#13242f; border-radius:6px; }
+
+  section{ border-bottom:1px solid var(--line); padding:16px 18px; }
+  section h2{ font-family:var(--mono); font-size:10.5px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--phos); margin:0 0 13px; display:flex; align-items:center; gap:9px; }
+  section h2::before{ content:""; width:5px; height:5px; background:var(--phos); transform:rotate(45deg); box-shadow:0 0 6px var(--phos); }
+  label{ display:block; font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--dim); margin:11px 0 5px; }
+  label:first-of-type{ margin-top:0; }
+  select, input[type=text], input[type=number], textarea{
+    width:100%; background:var(--abyss); color:var(--ink); border:1px solid var(--line);
+    border-radius:3px; padding:9px 10px; font-family:var(--mono); font-size:13px; outline:none; transition:border-color .15s, box-shadow .15s; }
+  select:focus, input:focus, textarea:focus{ border-color:var(--phos-deep); box-shadow:0 0 0 3px rgba(46,230,192,.1); }
+  input[type=range]{ width:100%; accent-color:var(--phos); margin:2px 0; }
+  .row{ display:flex; gap:10px; }
+  .row > *{ flex:1; min-width:0; }
+  .check{ display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:11px;
+    letter-spacing:.04em; color:var(--dim); margin-top:9px; cursor:pointer; text-transform:none; }
+  .check input{ accent-color:var(--phos); width:14px; height:14px; }
+  .btnrow{ display:flex; gap:10px; margin-top:14px; }
+  .btnrow > button{ flex:1; }
+  button{ cursor:pointer; font-family:var(--mono); font-size:12px; letter-spacing:.12em; text-transform:uppercase;
+    font-weight:500; border:1px solid transparent; border-radius:3px; padding:10px 14px; transition:filter .15s, background .15s; }
+  button.go{ background:var(--phos); color:#03110d; box-shadow:0 0 18px rgba(46,230,192,.22); }
+  button.go:hover{ filter:brightness(1.12); }
+  button.halt{ background:transparent; color:var(--coral); border-color:rgba(255,93,108,.4); }
+  button.halt:hover{ background:rgba(255,93,108,.1); }
+  button.send{ background:var(--amber); color:#1c1102; box-shadow:0 0 18px rgba(255,178,74,.18); }
+  button.send:hover{ filter:brightness(1.1); }
+  button:disabled{ opacity:.35; cursor:not-allowed; filter:none; box-shadow:none; }
+
+  /* composer */
+  .composer{ position:relative; }
+  .composer textarea{ resize:vertical; min-height:96px; line-height:1.5; font-size:13.5px;
+    border-left:2px solid var(--amber); }
+  .composer .count{ position:absolute; right:9px; bottom:7px; font-family:var(--mono); font-size:10px;
+    color:var(--faint); pointer-events:none; }
+  .sval{ color:var(--phos); }
+  .hint{ font-family:var(--mono); font-size:10px; letter-spacing:.04em; color:var(--faint); margin-top:8px; line-height:1.5; }
+  details summary{ font-family:var(--mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--faint); cursor:pointer; margin-top:12px; list-style:none; }
+  details summary::before{ content:"▸ "; }
+  details[open] summary::before{ content:"▾ "; }
+
+  /* stage */
+  .stage{ display:flex; flex-direction:column; min-width:0; }
+  .wf-wrap{ position:relative; flex:1 1 56%; min-height:200px; background:#02060a; overflow:hidden;
+    box-shadow:inset 0 0 80px rgba(0,0,0,.7); }
+  #waterfall{ width:100%; height:100%; display:block; image-rendering:pixelated; }
+  .wf-frame{ position:absolute; inset:0; pointer-events:none;
+    box-shadow:inset 0 0 0 1px var(--line); }
+  .wf-axis{ position:absolute; bottom:8px; left:0; right:0; display:flex; justify-content:space-between;
+    padding:0 12px; font-family:var(--mono); font-size:10px; letter-spacing:.08em; color:var(--dim); text-shadow:0 0 6px #000; }
+  .wf-tag{ position:absolute; top:9px; left:12px; font-family:var(--mono); font-size:10px; letter-spacing:.18em;
+    text-transform:uppercase; color:var(--phos); text-shadow:0 0 8px #000; opacity:.85; }
+
+  /* message feed */
+  .feed-head{ display:flex; align-items:center; gap:10px; padding:9px 16px; border-top:1px solid var(--line);
+    background:var(--abyss2); font-family:var(--mono); font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--dim); }
+  .feed-head .n{ color:var(--phos); }
+  .feed{ flex:1 1 44%; overflow-y:auto; background:linear-gradient(180deg,var(--abyss),var(--abyss2)); padding:12px 14px; }
+  .feed:empty::before{ content:"Awaiting transmissions…"; display:block; font-family:var(--mono); font-size:11px;
+    letter-spacing:.1em; color:var(--faint); text-align:center; padding:40px 0; }
+  .msg{ position:relative; border:1px solid var(--line); border-left:3px solid var(--phos-deep);
+    border-radius:4px; background:rgba(13,30,40,.5); padding:12px 14px; margin-bottom:11px;
+    animation:rise .35s ease; cursor:pointer; transition:border-color .15s, background .15s; }
+  .msg:hover{ border-color:var(--line-hi); background:rgba(16,36,48,.85); }
+  .msg:hover::after{ content:"open ⤢"; position:absolute; top:10px; right:12px; font-family:var(--mono);
+    font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--phos); opacity:.7; }
+  .msg.bad{ border-left-color:var(--coral); opacity:.8; }
+  .msg.self{ border-left-color:var(--amber); }
+  @keyframes rise{ from{ opacity:0; transform:translateY(7px);} to{ opacity:1; transform:none; } }
+  .msg .meta{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-family:var(--mono);
+    font-size:10px; letter-spacing:.08em; color:var(--dim); margin-bottom:7px; }
+  .msg .meta .t{ color:var(--faint); }
+  .badge{ font-family:var(--mono); font-size:9.5px; letter-spacing:.12em; text-transform:uppercase;
+    padding:2px 7px; border-radius:2px; }
+  .badge.ok{ color:var(--phos); background:rgba(46,230,192,.12); }
+  .badge.fail{ color:var(--coral); background:rgba(255,93,108,.12); }
+  .badge.tx{ color:var(--amber); background:rgba(255,178,74,.12); }
+  .badge.warn{ color:var(--amber); background:rgba(255,178,74,.14); cursor:help; }
+  .msg .body{ font-family:var(--sans); font-size:15px; line-height:1.5; color:#eaf6f5; white-space:pre-wrap;
+    word-break:break-word; display:-webkit-box; -webkit-line-clamp:6; -webkit-box-orient:vertical; overflow:hidden; }
+  .msg .body.long::after{ content:"… "; color:var(--phos); }
+  .msg .stats{ display:flex; gap:16px; flex-wrap:wrap; margin-top:9px; font-family:var(--mono);
+    font-size:10px; letter-spacing:.04em; color:var(--faint); }
+  .msg .stats b{ color:var(--dim); font-weight:400; }
+  .msg .bytes{ font-family:var(--mono); font-size:10px; color:var(--faint); margin-top:6px; word-break:break-all; }
+
+  .console{ font-family:var(--mono); font-size:10.5px; line-height:1.55; color:var(--dim);
+    background:var(--abyss); border:1px solid var(--line); border-radius:3px; padding:9px; height:120px;
+    overflow-y:auto; white-space:pre-wrap; word-break:break-word; }
+  /* message detail modal */
+  .overlay{ position:fixed; inset:0; z-index:100; background:rgba(2,6,10,.78); backdrop-filter:blur(3px);
+    display:none; align-items:center; justify-content:center; padding:28px; }
+  .overlay.show{ display:flex; }
+  .modal{ width:min(780px,95vw); max-height:88vh; display:flex; flex-direction:column; background:var(--panel);
+    border:1px solid var(--line-hi); border-radius:8px; box-shadow:0 30px 90px rgba(0,0,0,.65); overflow:hidden; animation:rise .22s ease; }
+  .mhead{ display:flex; align-items:center; gap:12px; padding:14px 18px; border-bottom:1px solid var(--line);
+    font-family:var(--mono); font-size:11px; letter-spacing:.1em; color:var(--dim); }
+  .mhead .mt{ color:var(--ink); }
+  .mhead .sp{ flex:1; }
+  .mbtn{ background:transparent; border:1px solid var(--line); color:var(--dim); padding:6px 11px; }
+  .mbtn:hover{ border-color:var(--phos-deep); color:var(--phos); }
+  .mbody{ padding:18px; overflow-y:auto; }
+  .ptext{ font-family:var(--sans); font-size:15px; line-height:1.65; white-space:pre-wrap; word-break:break-word;
+    color:#eef7f6; background:var(--abyss); border:1px solid var(--line); border-radius:6px; padding:15px;
+    max-height:48vh; overflow:auto; user-select:text; }
+  .ptext-meta{ font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--faint); margin:14px 0 6px; }
+  .kv{ display:grid; grid-template-columns:auto 1fr; gap:7px 20px; font-family:var(--mono); font-size:11.5px; }
+  .kv .k{ color:var(--dim); letter-spacing:.05em; white-space:nowrap; }
+  .kv .v{ color:var(--ink); word-break:break-all; user-select:text; }
+  @media (max-width:880px){ main{ grid-template-columns:1fr; height:auto; } .wf-wrap{ min-height:260px; } }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">janus<b>py</b><span class="slash">//</span>sonar modem</span>
+  <span id="live" class="live"><span class="dot"></span><span id="liveTxt">offline</span></span>
+  <span id="psetChip" class="chip">pset —</span>
+  <span class="grow"></span>
+  <span id="ref" class="ref"></span>
+</header>
+
+<main>
+  <div class="rail">
+    <section>
+      <h2>Receiver</h2>
+      <label>Input device</label>
+      <select id="inDev"></select>
+      <label>Parameter set</label>
+      <select id="psetSel"></select>
+      <label class="check"><input type="checkbox" id="doppler" checked /> Doppler correction</label>
+      <div class="btnrow">
+        <button id="startBtn" class="go">Start RX</button>
+        <button id="stopBtn" class="halt" disabled>Stop</button>
+      </div>
+      <div class="hint">Listens continuously and decodes every JANUS packet on the channel.</div>
+    </section>
+
+    <section>
+      <h2>Transmit</h2>
+      <div class="composer">
+        <label>Message</label>
+        <textarea id="cargo" placeholder="Type a message to transmit over the channel…" maxlength="480"></textarea>
+        <span class="count"><span id="cargoN">0</span>/<span id="cargoMax">480</span> bytes</span>
+      </div>
+      <label>Output device</label>
+      <select id="outDev"></select>
+      <label class="check"><input type="checkbox" id="monitor" checked /> Show own TX on waterfall</label>
+      <label class="check"><input type="checkbox" id="loopback" /> Digital loopback (decode own TX, no audio path)</label>
+      <label class="check"><input type="checkbox" id="verify" /> Validate payload with CRC-32 (non-standard; both ends)</label>
+      <details>
+        <summary>Advanced</summary>
+        <div class="row" style="margin-top:10px">
+          <div><label>Class id</label><input type="number" id="classId" placeholder="16" /></div>
+          <div><label>App type</label><input type="number" id="appType" placeholder="0" /></div>
+        </div>
+      </details>
+      <div class="btnrow">
+        <button id="sendBtn" class="send">Transmit</button>
+      </div>
+      <div class="hint">⌘/Ctrl + Enter to transmit.</div>
+    </section>
+
+    <section>
+      <h2>Spectrogram</h2>
+      <div class="row">
+        <div><label>Min freq (Hz)</label><input type="number" id="wfMin" step="100" /></div>
+        <div><label>Max freq (Hz)</label><input type="number" id="wfMax" step="100" /></div>
+      </div>
+      <label>FFT size <span id="wfBins" class="hint" style="float:right;margin:0"></span></label>
+      <select id="wfNfft">
+        <option>512</option><option>1024</option><option>2048</option><option>4096</option>
+      </select>
+      <label>Noise floor · <span class="sval" id="wfFloorV"></span> dB</label>
+      <input type="range" id="wfFloor" min="-120" max="-20" step="1" />
+      <label>Headroom · <span class="sval" id="wfCeilV"></span> dB</label>
+      <input type="range" id="wfCeil" min="-60" max="20" step="1" />
+      <label>Palette</label>
+      <select id="wfCmap">
+        <option value="phosphor">Phosphor</option>
+        <option value="ice">Ice</option>
+        <option value="amber">Amber</option>
+        <option value="mono">Mono</option>
+      </select>
+    </section>
+
+    <section>
+      <h2>Console</h2>
+      <div id="console" class="console"></div>
+    </section>
+  </div>
+
+  <div class="stage">
+    <div class="wf-wrap">
+      <canvas id="waterfall"></canvas>
+      <div class="wf-frame"></div>
+      <div class="wf-tag">channel waterfall</div>
+      <div class="wf-axis"><span id="fLo">—</span><span>frequency →</span><span id="fHi">—</span></div>
+    </div>
+    <div class="feed-head"><span>Received</span><span class="n" id="rxCount">0</span><span>messages</span></div>
+    <div id="feed" class="feed"></div>
+  </div>
+</main>
+
+<div id="overlay" class="overlay">
+  <div class="modal">
+    <div class="mhead">
+      <span id="mBadge"></span>
+      <span class="mt" id="mTitle">Message</span>
+      <span class="sp"></span>
+      <button id="mCopy" class="mbtn">Copy</button>
+      <button id="mClose" class="mbtn">Close ✕</button>
+    </div>
+    <div class="mbody">
+      <div id="mText" class="ptext"></div>
+      <div class="ptext-meta">Details</div>
+      <div id="mKv" class="kv"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let ws, wfCtx, wfW = 0, wfH = 0, cmap = "phosphor", rxCount = 0;
+
+/* ---------- websocket ---------- */
+function connect(){
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onmessage = e => handle(JSON.parse(e.data));
+  ws.onopen = () => log("link established");
+  ws.onclose = () => { setLive(false); log("link lost — reconnecting…"); setTimeout(connect, 1400); };
+}
+function send(o){ if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+
+function setLive(on){
+  $("live").className = "live " + (on ? "on" : "");
+  $("liveTxt").textContent = on ? "receiving" : "standby";
+  $("startBtn").disabled = on; $("stopBtn").disabled = !on;
+}
+
+function handle(m){
+  switch(m.type){
+    case "status":
+      setLive(m.running);
+      $("psetChip").textContent = "pset " + m.pset_id;
+      if (m.reference) $("ref").textContent = m.reference;
+      if (m.max_cargo){ $("cargo").maxLength = m.max_cargo; $("cargoMax").textContent = m.max_cargo; }
+      if (m.verify != null) $("verify").checked = m.verify;
+      break;
+    case "devices": fillDevices(m.devices); break;
+    case "psets": fillPsets(m.psets); break;
+    case "waterfall_config": applyWfConfig(m); break;
+    case "packet": addMessage(m.packet, false); break;
+    case "tx": addTx(m.info); break;
+    case "waterfall": drawRow(m.row); break;
+    case "event": log(m.message); break;
+  }
+}
+
+/* ---------- selects ---------- */
+function fillDevices(d){
+  const fill = (sel, list, def) => {
+    sel.innerHTML = ""; sel.add(new Option("system default", ""));
+    list.forEach(x => sel.add(new Option(`${x.index} · ${x.name}`, x.index)));
+    if (def != null) sel.value = def;
+  };
+  fill($("inDev"), d.inputs, d.default_input);
+  fill($("outDev"), d.outputs, d.default_output);
+}
+function fillPsets(list){
+  const s = $("psetSel"); s.innerHTML = "";
+  list.forEach(p => s.add(new Option(`${p.id} · ${p.name} — ${(p.cfreq/1000).toFixed(1)}kHz / ${p.bandwidth}Hz`, p.id)));
+}
+
+/* ---------- message feed ---------- */
+const esc = s => (s||"").replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const num = v => (v==null || isNaN(v)) ? "—" : v;
+function addMessage(p, self){
+  p._self = self; p._time = p.time || Date.now()/1000;
+  const div = document.createElement("div");
+  div.className = "msg" + (self ? " self" : (p.crc_ok ? "" : " bad"));
+  const t = new Date(p._time * 1000).toLocaleTimeString();
+  const crcTip = "Baseline 64-bit header CRC. JANUS cargo has no checksum — payload integrity relies on FEC only.";
+  const badge = self ? '<span class="badge tx">sent</span>'
+    : (p.crc_ok ? `<span class="badge ok" title="${crcTip}">header crc ok</span>`
+                : '<span class="badge fail">crc fail</span>');
+  // Real app-layer payload CRC-32 result (only present when --verify is enabled).
+  const pv = p.payload_ok === true
+      ? '<span class="badge ok" title="App-layer CRC-32 over the payload matched.">payload ✓</span>'
+    : p.payload_ok === false
+      ? '<span class="badge fail" title="App-layer CRC-32 mismatch — the payload was corrupted in transit.">payload ✗ corrupt</span>'
+    : (self && p._verified ? '<span class="badge warn" title="Sent with an app-layer CRC-32 (receiver needs --verify to check it).">crc-32</span>' : "");
+  const cls = p.class_id_name ? `${p.class_id_name}` : `class ${p.class_id ?? "—"}`;
+  const payload = p.payload || "(no payload)";
+  const longCls = payload.length > 240 || (payload.match(/\n/g)||[]).length > 5 ? " long" : "";
+  const stats = self ? `<b>dur</b> ${p.duration ?? "—"}s · <b>${(payload||'').length}</b> bytes` :
+    `<span><b>snr</b> ${num(p.snr!=null?Number(p.snr).toFixed(1):null)} dB</span>`+
+    `<span><b>speed</b> ${p.speed!=null&&!isNaN(p.speed)?Number(p.speed).toFixed(2)+" m/s":"—"}</span>`+
+    `<span><b>γ</b> ${p.gamma!=null?Number(p.gamma).toFixed(5):"—"}</span>`+
+    `<span><b>${(payload||'').length}</b> bytes</span>`;
+  div.innerHTML =
+    `<div class="meta"><span class="t">${t}</span>${badge}${pv}<span>${esc(cls)}</span>`+
+      `<span>app ${p.app_type ?? "—"}</span></div>`+
+    `<div class="body${longCls}">${esc(payload)}</div>`+
+    `<div class="stats">${stats}</div>`+
+    (p.bytes_hex ? `<div class="bytes">${esc(p.bytes_hex.replace(/\s+/g,' ').trim())}</div>` : "");
+  div.addEventListener("click", () => openMsg(p));
+  const feed = $("feed");
+  feed.prepend(div);
+  while (feed.children.length > 250) feed.removeChild(feed.lastChild);
+  rxCount++; $("rxCount").textContent = rxCount;
+}
+
+/* ---------- message detail modal ---------- */
+let modalPayload = "";
+function openMsg(p){
+  modalPayload = p.payload || "";
+  const t = new Date(p._time * 1000).toLocaleString();
+  $("mBadge").innerHTML = p._self ? '<span class="badge tx">sent</span>'
+    : (p.crc_ok ? '<span class="badge ok">crc ok</span>' : '<span class="badge fail">crc fail</span>');
+  $("mTitle").textContent = `${t} · ${p.class_id_name || ("class "+(p.class_id??"—"))}`;
+  $("mText").textContent = p.payload || "(no payload)";
+  const rows = [];
+  const add = (k,v) => { if (v!==undefined && v!==null && v!=="") rows.push([k,v]); };
+  add("Payload bytes", (p.payload||"").length);
+  add("Class", `${p.class_id ?? "—"}${p.class_id_name ? " · "+p.class_id_name : ""}`);
+  add("App type", p.app_type);
+  add("Cargo size", p.cargo_size);
+  add("CRC", p._self ? "—" : (p.crc_ok ? "valid" : "INVALID"));
+  if (!p._self){
+    add("SNR (dB)", p.snr!=null && !isNaN(p.snr) ? Number(p.snr).toFixed(2) : null);
+    add("Doppler speed", p.speed!=null && !isNaN(p.speed) ? Number(p.speed).toFixed(3)+" m/s" : null);
+    add("γ (dilation)", p.gamma!=null ? Number(p.gamma).toFixed(6) : null);
+    add("RSSI", p.rssi);
+    add("Detected at", p.after!=null ? Number(p.after).toFixed(3)+" s" : null);
+  } else add("Duration", p.duration!=null ? p.duration+" s" : null);
+  add("Packet bytes", p.bytes_hex ? p.bytes_hex.replace(/\s+/g,' ').trim() : null);
+  for (const [k,v] of Object.entries(p.fields || {})) add(k, v);
+  $("mKv").innerHTML = rows.map(([k,v]) => `<div class="k">${esc(k)}</div><div class="v">${esc(String(v))}</div>`).join("");
+  $("overlay").classList.add("show");
+}
+function closeMsg(){ $("overlay").classList.remove("show"); }
+$("mClose").onclick = closeMsg;
+$("overlay").addEventListener("click", e => { if (e.target === $("overlay")) closeMsg(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeMsg(); });
+$("mCopy").onclick = async () => {
+  try { await navigator.clipboard.writeText(modalPayload); $("mCopy").textContent = "Copied ✓";
+        setTimeout(() => $("mCopy").textContent = "Copy", 1200); }
+  catch { const ta=document.createElement("textarea"); ta.value=modalPayload; document.body.appendChild(ta);
+          ta.select(); document.execCommand("copy"); ta.remove(); $("mCopy").textContent="Copied ✓";
+          setTimeout(() => $("mCopy").textContent = "Copy", 1200); }
+};
+function addTx(info){
+  log(`TX ▸ "${info.payload}" (${info.duration}s, class ${info.class_id})`);
+  addMessage({ payload: info.payload, class_id: info.class_id, app_type: info.app_type,
+    bytes_hex: info.bytes_hex, duration: info.duration, time: Date.now()/1000,
+    _verified: info.verified }, true);
+}
+
+/* ---------- waterfall ---------- */
+function initWaterfall(){
+  const cv = $("waterfall"); const r = cv.getBoundingClientRect();
+  wfW = cv.width = Math.max(256, Math.floor(r.width));
+  wfH = cv.height = Math.max(180, Math.floor(r.height));
+  wfCtx = cv.getContext("2d", { willReadFrequently:true });
+  wfCtx.fillStyle = "#02060a"; wfCtx.fillRect(0,0,wfW,wfH);
+}
+const clamp01 = v => Math.max(0, Math.min(1, v));
+const CMAPS = {
+  phosphor: v => [Math.floor(255*clamp01(1.6*v-.55)), Math.floor(255*clamp01(1.35*v+.05)), Math.floor(255*clamp01(.8*v+.12*(1-v)))],
+  ice:      v => [Math.floor(255*clamp01(1.4*v-.5)), Math.floor(255*clamp01(1.1*v)), Math.floor(80+175*clamp01(v))],
+  amber:    v => [Math.floor(255*clamp01(1.5*v)), Math.floor(255*clamp01(1.3*v-.25)), Math.floor(255*clamp01(1.6*v-1.1))],
+  mono:     v => { const g=Math.floor(255*clamp01(v*1.1)); return [g,g,g]; },
+};
+function drawRow(row){
+  if (!wfCtx || !row || !row.length) return;
+  const img = wfCtx.getImageData(0,0,wfW,wfH-1);
+  wfCtx.putImageData(img,0,1);
+  const line = wfCtx.createImageData(wfW,1), fn = CMAPS[cmap] || CMAPS.phosphor;
+  for (let x=0; x<wfW; x++){
+    const [r,g,b] = fn(row[Math.floor(x/wfW*row.length)] || 0);
+    const o=x*4; line.data[o]=r; line.data[o+1]=g; line.data[o+2]=b; line.data[o+3]=255;
+  }
+  wfCtx.putImageData(line,0,0);
+}
+function applyWfConfig(c){
+  if (c.fmin!=null) $("wfMin").value = Math.round(c.fmin);
+  if (c.fmax!=null) $("wfMax").value = Math.round(c.fmax);
+  if (c.nfft!=null) $("wfNfft").value = c.nfft;
+  if (c.floor_db!=null){ $("wfFloor").value = c.floor_db; $("wfFloorV").textContent = c.floor_db; }
+  if (c.ceil_db!=null){ $("wfCeil").value = c.ceil_db; $("wfCeilV").textContent = c.ceil_db; }
+  if (c.bins!=null) $("wfBins").textContent = c.bins + " bins";
+  if (c.fmin!=null) $("fLo").textContent = (c.fmin/1000).toFixed(2) + " kHz";
+  if (c.fmax!=null) $("fHi").textContent = (c.fmax/1000).toFixed(2) + " kHz";
+}
+
+/* ---------- controls ---------- */
+const numOrNull = v => (v === "" || v == null) ? null : Number(v);
+$("startBtn").onclick = () => send({ action:"start_rx",
+  device:numOrNull($("inDev").value), pset_id:numOrNull($("psetSel").value), doppler:$("doppler").checked });
+$("stopBtn").onclick = () => send({ action:"stop_rx" });
+$("sendBtn").onclick = () => {
+  const cargo = $("cargo").value;
+  if (!cargo.trim()) { log("nothing to transmit"); return; }
+  send({ action:"tx", cargo, class_id:numOrNull($("classId").value), app_type:numOrNull($("appType").value),
+    output_device:numOrNull($("outDev").value), monitor:$("monitor").checked, loopback:$("loopback").checked });
+  $("cargo").value = ""; $("cargoN").textContent = "0";
+};
+$("cargo").addEventListener("input", e => $("cargoN").textContent = e.target.value.length);
+$("cargo").addEventListener("keydown", e => { if ((e.metaKey||e.ctrlKey) && e.key === "Enter") $("sendBtn").click(); });
+
+let wfTimer = null;
+function pushWf(){
+  clearTimeout(wfTimer);
+  wfTimer = setTimeout(() => send({ action:"set_waterfall",
+    fmin:numOrNull($("wfMin").value), fmax:numOrNull($("wfMax").value), nfft:numOrNull($("wfNfft").value),
+    floor_db:numOrNull($("wfFloor").value), ceil_db:numOrNull($("wfCeil").value) }), 250);
+}
+["wfMin","wfMax","wfNfft","wfFloor","wfCeil"].forEach(id => $(id).addEventListener("input", e => {
+  if (id === "wfFloor") $("wfFloorV").textContent = e.target.value;
+  if (id === "wfCeil") $("wfCeilV").textContent = e.target.value;
+  pushWf();
+}));
+$("wfCmap").addEventListener("change", e => cmap = e.target.value);
+$("verify").addEventListener("change", e => send({ action:"set_verify", verify:e.target.checked }));
+
+function log(msg){
+  const c = $("console");
+  c.textContent += (c.textContent ? "\n" : "") + new Date().toLocaleTimeString() + "  " + msg;
+  c.scrollTop = c.scrollHeight;
+}
+
+window.addEventListener("resize", initWaterfall);
+initWaterfall();
+fetch("/api/devices").then(r=>r.json()).then(fillDevices).catch(()=>{});
+fetch("/api/psets").then(r=>r.json()).then(fillPsets).catch(()=>{});
+fetch("/api/waterfall").then(r=>r.json()).then(applyWfConfig).catch(()=>{});
+connect();
+</script>
+</body>
+</html>

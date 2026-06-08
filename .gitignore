@@ -1,0 +1,28 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+
+# --- Reference build outputs ---
+# NOTE: these live inside the `third_party/reference` submodule, and a
+# superproject .gitignore does NOT apply inside submodules. They are kept out
+# of the superproject status via `ignore = untracked` in .gitmodules, and out
+# of the submodule's own status via third_party/reference/.git/info/exclude.
+# Patterns kept here as documentation only:
+#   third_party/reference/c/build/
+#   third_party/reference/c/local-install/
+
+# --- OS / editor cruft ---
+.DS_Store
+*.swp
