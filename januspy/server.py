@@ -62,6 +62,7 @@ class Hub:
             on_waterfall=lambda row: self._emit({"type": "waterfall", "row": row}),
             on_event=lambda e: self._emit({"type": "event", "message": e}),
             on_tx=lambda info: self._emit({"type": "tx", "info": info}),
+            on_level=lambda lv: self._emit({"type": "level", "level": lv}),
         )
 
     def _emit(self, message: dict) -> None:
@@ -137,8 +138,13 @@ def create_app(engine: JanusEngine | None = None) -> FastAPI:
 
     @app.get("/")
     async def index():
-        """Serve the single-page web UI."""
-        return FileResponse(_WEB_DIR / "index.html")
+        """Serve the single-page web UI.
+
+        ``no-cache`` makes the browser revalidate on every load (cheap 304 when the
+        file is unchanged), so UI updates always show up without a hard refresh or a
+        ``?v=`` cache-buster.
+        """
+        return FileResponse(_WEB_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
     @app.get("/favicon.ico")
     @app.get("/favicon.svg")

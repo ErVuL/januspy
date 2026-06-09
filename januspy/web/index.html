@@ -104,6 +104,41 @@
   details summary::before{ content:"▸ "; }
   details[open] summary::before{ content:"▾ "; }
 
+  /* input level meter */
+  .meter-bar{ position:relative; height:11px; background:var(--abyss); border:1px solid var(--line);
+    border-radius:3px; overflow:hidden; }
+  .meter-grad{ position:absolute; inset:0;
+    background:linear-gradient(90deg,var(--phos-deep),var(--phos) 78%,var(--amber) 90%,var(--coral) 98%); }
+  .meter-mask{ position:absolute; top:0; right:0; bottom:0; width:100%; background:var(--abyss); transition:width .05s linear; }
+  .meter-peak{ position:absolute; top:0; bottom:0; width:2px; background:var(--ink); opacity:.85; left:0; transition:left .08s linear; }
+  .meter-row{ display:flex; justify-content:space-between; align-items:center; margin-top:6px;
+    font-family:var(--mono); font-size:10px; letter-spacing:.06em; color:var(--faint); }
+  .meter-clip{ border:1px solid var(--line); border-radius:2px; padding:1px 7px; letter-spacing:.12em; text-transform:uppercase; }
+  .meter-clip.on{ color:#1c0608; background:var(--coral); border-color:var(--coral); }
+
+  /* link-quality sparkline */
+  .lq-canvas{ width:100%; height:72px; display:block; background:var(--abyss); border:1px solid var(--line);
+    border-radius:3px; image-rendering:pixelated; }
+  .lq-stats{ display:flex; gap:16px; margin-top:8px; font-family:var(--mono); font-size:10px;
+    letter-spacing:.06em; color:var(--faint); }
+  .lq-stats b{ color:var(--phos); font-weight:400; }
+
+  /* draggable / resizable rail panels */
+  .rail section{ position:relative; }
+  .rail section h2{ cursor:grab; user-select:none; touch-action:none; }
+  .rail section h2:active{ cursor:grabbing; }
+  .pchev{ margin-left:auto; font-size:9px; color:var(--faint); transition:transform .15s; }
+  section.collapsed .pchev{ transform:rotate(-90deg); }
+  section.collapsed .pbody, section.collapsed .presize{ display:none; }
+  section.dragging{ opacity:.75; background:var(--panel-hi); box-shadow:0 10px 28px rgba(0,0,0,.55); z-index:5; }
+  .pbody{ overflow:auto; }
+  .pbody::-webkit-scrollbar{ width:9px; }
+  .pbody::-webkit-scrollbar-thumb{ background:#13242f; border-radius:6px; }
+  .presize{ height:9px; margin:10px -18px -16px; cursor:row-resize; position:relative; touch-action:none; }
+  .presize::after{ content:""; position:absolute; left:50%; top:3px; transform:translateX(-50%);
+    width:34px; height:2px; border-radius:2px; background:var(--line-hi); transition:background .15s, width .15s; }
+  .presize:hover::after{ background:var(--phos-deep); width:48px; }
+
   /* stage */
   .stage{ display:flex; flex-direction:column; min-width:0; }
   .wf-wrap{ position:relative; flex:1 1 56%; min-height:200px; background:#02060a; overflow:hidden;
@@ -150,7 +185,7 @@
   .msg .bytes{ font-family:var(--mono); font-size:10px; color:var(--faint); margin-top:6px; word-break:break-all; }
 
   .console{ font-family:var(--mono); font-size:10.5px; line-height:1.55; color:var(--dim);
-    background:var(--abyss); border:1px solid var(--line); border-radius:3px; padding:9px; height:120px;
+    background:var(--abyss); border:1px solid var(--line); border-radius:3px; padding:9px; height:100%; min-height:90px;
     overflow-y:auto; white-space:pre-wrap; word-break:break-word; }
   /* message detail modal */
   .overlay{ position:fixed; inset:0; z-index:100; background:rgba(2,6,10,.78); backdrop-filter:blur(3px);
@@ -199,6 +234,13 @@
         <button id="stopBtn" class="halt" disabled>Stop</button>
       </div>
       <div class="hint">Listens continuously and decodes every JANUS packet on the channel.</div>
+      <label>Input level</label>
+      <div class="meter-bar">
+        <div class="meter-grad"></div>
+        <div class="meter-mask" id="meterMask"></div>
+        <div class="meter-peak" id="meterPeak"></div>
+      </div>
+      <div class="meter-row"><span id="meterDb">—</span><span id="meterClip" class="meter-clip">clip</span></div>
     </section>
 
     <section>
@@ -247,6 +289,17 @@
         <option value="amber">Amber</option>
         <option value="mono">Mono</option>
       </select>
+    </section>
+
+    <section>
+      <h2>Link quality</h2>
+      <canvas id="lqCanvas" class="lq-canvas"></canvas>
+      <div class="lq-stats">
+        <span>snr <b id="lqSnr">—</b></span>
+        <span>γ <b id="lqGamma">—</b></span>
+        <span>crc ok <b id="lqRate">—</b></span>
+      </div>
+      <div class="hint">SNR per received packet — green = header CRC ok, coral = CRC fail.</div>
     </section>
 
     <section>
@@ -302,6 +355,73 @@ function setLive(on){
   $("live").className = "live " + (on ? "on" : "");
   $("liveTxt").textContent = on ? "receiving" : "standby";
   $("startBtn").disabled = on; $("stopBtn").disabled = !on;
+  if (!on) resetMeter();
+}
+
+/* ---------- input level meter ---------- */
+const METER_FLOOR = -60;  // dBFS at the left edge of the bar
+const dbToPct = db => Math.max(0, Math.min(100, (db - METER_FLOOR) / -METER_FLOOR * 100));
+let peakHoldDb = -120, peakHoldT = 0, clipUntil = 0, dispDb = METER_FLOOR;
+function updateMeter(lv){
+  const now = performance.now();
+  // Fast-attack / slow-release ballistics: jump up instantly, ease down ~2.5 dB per
+  // ~50 ms tick, so the bar reads steadily instead of flickering on a log scale.
+  dispDb = lv.rms_db > dispDb ? lv.rms_db : Math.max(lv.rms_db, dispDb - 2.5);
+  $("meterMask").style.width = (100 - dbToPct(dispDb)) + "%";
+  if (lv.peak_db >= peakHoldDb || now - peakHoldT > 1200){ peakHoldDb = lv.peak_db; peakHoldT = now; }
+  $("meterPeak").style.left = "calc(" + dbToPct(peakHoldDb) + "% - 1px)";
+  $("meterDb").textContent = (lv.rms_db <= -99 ? "−∞" : lv.rms_db.toFixed(0)) + " dBFS";
+  if (lv.clip) clipUntil = now + 800;  // latch the clip light so brief overs stay visible
+  $("meterClip").classList.toggle("on", now < clipUntil);
+}
+function resetMeter(){
+  $("meterMask").style.width = "100%"; $("meterPeak").style.left = "0%";
+  $("meterDb").textContent = "—"; $("meterClip").classList.remove("on");
+  peakHoldDb = -120; clipUntil = 0; dispDb = METER_FLOOR;
+}
+
+/* ---------- link-quality sparkline ---------- */
+const LQ_MAX = 96;                  // recent received packets retained
+const LQ_SMIN = -5, LQ_SMAX = 30;   // SNR axis (dB), clamped
+const lq = [];                      // [{snr, gamma, ok}]
+let lqCtx = null, lqW = 0, lqH = 0;
+function initLinkQuality(){
+  const cv = $("lqCanvas"); if (!cv) return;
+  const r = cv.getBoundingClientRect();
+  lqW = cv.width = Math.max(120, Math.floor(r.width));
+  lqH = cv.height = 72;
+  lqCtx = cv.getContext("2d");
+  drawLinkQuality();
+}
+function pushLinkQuality(p){
+  lq.push({ snr: (p.snr!=null && !isNaN(p.snr)) ? Number(p.snr) : null,
+            gamma: (p.gamma!=null) ? Number(p.gamma) : null, ok: !!p.crc_ok });
+  while (lq.length > LQ_MAX) lq.shift();
+  const oks = lq.reduce((a,d)=>a+(d.ok?1:0), 0), last = lq[lq.length-1];
+  $("lqRate").textContent = lq.length ? Math.round(100*oks/lq.length) + "%" : "—";
+  $("lqSnr").textContent = (last.snr!=null) ? last.snr.toFixed(1) + " dB" : "—";
+  $("lqGamma").textContent = (last.gamma!=null) ? last.gamma.toFixed(4) : "—";
+  drawLinkQuality();
+}
+function drawLinkQuality(){
+  if (!lqCtx) return;
+  const pad = 5, span = LQ_SMAX - LQ_SMIN;
+  lqCtx.clearRect(0, 0, lqW, lqH);
+  lqCtx.strokeStyle = "rgba(120,190,205,.10)"; lqCtx.lineWidth = 1;   // faint 0/10/20 dB guides
+  [0, 10, 20].forEach(db => {
+    const y = lqH - pad - (db - LQ_SMIN) / span * (lqH - 2*pad);
+    lqCtx.beginPath(); lqCtx.moveTo(0, y+.5); lqCtx.lineTo(lqW, y+.5); lqCtx.stroke();
+  });
+  const n = lq.length; if (!n) return;
+  const bw = lqW / LQ_MAX;
+  for (let i = 0; i < n; i++){
+    const d = lq[i]; if (d.snr == null) continue;
+    const x = lqW - (n - i) * bw;
+    const t = Math.max(0, Math.min(1, (d.snr - LQ_SMIN) / span));
+    const h = t * (lqH - 2*pad);
+    lqCtx.fillStyle = d.ok ? "rgba(46,230,192,.85)" : "rgba(255,93,108,.85)";
+    lqCtx.fillRect(x, lqH - pad - h, Math.max(1.5, bw - 1), h);
+  }
 }
 
 function handle(m){
@@ -316,9 +436,10 @@ function handle(m){
     case "devices": fillDevices(m.devices); break;
     case "psets": fillPsets(m.psets); break;
     case "waterfall_config": applyWfConfig(m); break;
-    case "packet": addMessage(m.packet, false); break;
+    case "packet": addMessage(m.packet, false); pushLinkQuality(m.packet); break;
     case "tx": addTx(m.info); break;
     case "waterfall": drawRow(m.row); break;
+    case "level": updateMeter(m.level); break;
     case "event": log(m.message); break;
   }
 }
@@ -460,6 +581,99 @@ function applyWfConfig(c){
   if (c.fmax!=null) $("fHi").textContent = (c.fmax/1000).toFixed(2) + " kHz";
 }
 
+/* ---------- draggable / resizable rail panels ---------- */
+const PANELS_KEY = "janus.panels";
+const railEl = () => document.querySelector(".rail");
+const sectionsOf = rail => [...rail.querySelectorAll("section")];
+function sectionAfter(rail, dragSec, y){
+  for (const s of sectionsOf(rail)){
+    if (s === dragSec) continue;
+    const r = s.getBoundingClientRect();
+    if (y < r.top + r.height / 2) return s;
+  }
+  return null;
+}
+function savePanels(){
+  const rail = railEl(); if (!rail) return;
+  const order = sectionsOf(rail).map(s => s.dataset.key);
+  const state = {};
+  sectionsOf(rail).forEach(s => {
+    const pb = s.querySelector(".pbody");
+    state[s.dataset.key] = { collapsed: s.classList.contains("collapsed"),
+      h: (pb && pb.style.height) ? parseInt(pb.style.height, 10) : null };
+  });
+  try { localStorage.setItem(PANELS_KEY, JSON.stringify({ order, state })); } catch(_){}
+}
+function initPanels(){
+  const rail = railEl(); if (!rail) return;
+  const byKey = k => sectionsOf(rail).find(s => s.dataset.key === k);
+
+  sectionsOf(rail).forEach(sec => {
+    const h2 = sec.querySelector("h2");
+    sec.dataset.key = h2.textContent.trim().toLowerCase().replace(/\s+/g, "-");
+    // collapse chevron
+    const chev = document.createElement("span"); chev.className = "pchev"; chev.textContent = "▾";
+    h2.appendChild(chev);
+    // wrap everything after the header into a scrollable, resizable body
+    const body = document.createElement("div"); body.className = "pbody";
+    while (h2.nextSibling) body.appendChild(h2.nextSibling);
+    sec.appendChild(body);
+    const grip = document.createElement("div"); grip.className = "presize";
+    sec.appendChild(grip);
+
+    // header — drag to reorder, click (no drag) to collapse. Listen on `document`
+    // (not pointer capture): reordering relocates this section in the DOM, which
+    // would drop a capture held on its own header and freeze the drag.
+    h2.addEventListener("pointerdown", e => {
+      if (e.button !== 0) return;
+      const startY = e.clientY; let dragging = false;
+      const move = ev => {
+        if (!dragging && Math.abs(ev.clientY - startY) > 5){ dragging = true; sec.classList.add("dragging"); }
+        if (!dragging) return;
+        ev.preventDefault();
+        const after = sectionAfter(rail, sec, ev.clientY);
+        if (after == null) rail.appendChild(sec);
+        else if (after !== sec) rail.insertBefore(sec, after);
+      };
+      const up = () => {
+        document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up);
+        if (dragging) sec.classList.remove("dragging");
+        else sec.classList.toggle("collapsed");
+        savePanels();
+      };
+      document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
+    });
+
+    // resize handle — drag the bottom edge to set the body height
+    grip.addEventListener("pointerdown", e => {
+      e.preventDefault();
+      const startY = e.clientY, startH = body.getBoundingClientRect().height;
+      grip.setPointerCapture(e.pointerId);
+      const move = ev => { body.style.height = Math.max(44, startH + (ev.clientY - startY)) + "px"; };
+      const up = () => {
+        try { grip.releasePointerCapture(e.pointerId); } catch(_){}
+        grip.removeEventListener("pointermove", move); grip.removeEventListener("pointerup", up);
+        savePanels();
+      };
+      grip.addEventListener("pointermove", move); grip.addEventListener("pointerup", up);
+    });
+  });
+
+  // restore saved order + collapsed + heights
+  let saved = null; try { saved = JSON.parse(localStorage.getItem(PANELS_KEY) || "null"); } catch(_){}
+  if (saved){
+    (saved.order || []).forEach(k => { const s = byKey(k); if (s) rail.appendChild(s); });
+    Object.entries(saved.state || {}).forEach(([k, st]) => {
+      const s = byKey(k); if (!s) return;
+      if (st.collapsed) s.classList.add("collapsed");
+      if (st.h) s.querySelector(".pbody").style.height = st.h + "px";
+    });
+  }
+  // give the console log a sensible starting height when unset
+  const cons = byKey("console");
+  if (cons){ const pb = cons.querySelector(".pbody"); if (!pb.style.height) pb.style.height = "160px"; }
+}
+
 /* ---------- controls ---------- */
 const numOrNull = v => (v === "" || v == null) ? null : Number(v);
 $("startBtn").onclick = () => send({ action:"start_rx",
@@ -496,8 +710,10 @@ function log(msg){
   c.scrollTop = c.scrollHeight;
 }
 
-window.addEventListener("resize", initWaterfall);
+window.addEventListener("resize", () => { initWaterfall(); initLinkQuality(); });
+initPanels();
 initWaterfall();
+initLinkQuality();
 fetch("/api/devices").then(r=>r.json()).then(fillDevices).catch(()=>{});
 fetch("/api/psets").then(r=>r.json()).then(fillPsets).catch(()=>{});
 fetch("/api/waterfall").then(r=>r.json()).then(applyWfConfig).catch(()=>{});

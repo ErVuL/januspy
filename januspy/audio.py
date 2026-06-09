@@ -8,6 +8,7 @@ in the reference binaries — this module only moves samples around.
 
 from __future__ import annotations
 
+import math
 import threading
 from typing import Callable
 
@@ -120,12 +121,14 @@ class AudioEngine:
                  on_packet: Callable[[Detection], None] | None = None,
                  on_waterfall: Callable[[list[float]], None] | None = None,
                  on_event: Callable[[str], None] | None = None,
-                 on_tx: Callable[[dict], None] | None = None):
+                 on_tx: Callable[[dict], None] | None = None,
+                 on_level: Callable[[dict], None] | None = None):
         self.engine = engine or JanusEngine()
         self.on_packet = on_packet or (lambda d: None)
         self.on_waterfall = on_waterfall or (lambda row: None)
         self.on_event = on_event or (lambda e: None)
         self.on_tx = on_tx or (lambda info: None)
+        self.on_level = on_level or (lambda lv: None)
 
         self.fs = self.engine.config.fs
         self.pset_id = self.engine.config.pset_id
@@ -138,6 +141,11 @@ class AudioEngine:
         self._receiver: RealtimeReceiver | None = None
         self._waterfall: WaterfallAnalyzer | None = None
         self._in_stream = None
+        # Input-level meter accumulators (RMS/peak over ~50 ms windows).
+        self._lvl_sumsq = 0.0
+        self._lvl_peak = 0.0
+        self._lvl_n = 0
+        self._lvl_step = max(1, self.fs // 20)
         self._running = False
         self._lock = threading.Lock()
         self._play_lock = threading.Lock()  # serialise output so overlapping TX don't collide
@@ -150,6 +158,36 @@ class AudioEngine:
     def _new_waterfall(self) -> WaterfallAnalyzer:
         """Create a WaterfallAnalyzer with the current settings."""
         return WaterfallAnalyzer(self.fs, on_row=self.on_waterfall, **self.waterfall_settings)
+
+    def _accumulate_level(self, x: np.ndarray) -> None:
+        """Track input RMS/peak and emit a level reading every ~50 ms of audio.
+
+        Runs on the PortAudio callback thread, so it stays cheap: aggregate sums
+        across blocks and only emit (with dBFS + clip flag) once enough samples
+        have accrued, decoupling the meter rate from the device block size.
+        """
+        if x.size == 0:
+            return
+        self._lvl_sumsq += float(np.dot(x, x))
+        peak = float(np.max(np.abs(x))) if x.size else 0.0
+        if peak > self._lvl_peak:
+            self._lvl_peak = peak
+        self._lvl_n += x.size
+        if self._lvl_n < self._lvl_step:
+            return
+        rms = math.sqrt(self._lvl_sumsq / self._lvl_n)
+        peak = self._lvl_peak
+        self._lvl_sumsq = self._lvl_peak = 0.0
+        self._lvl_n = 0
+        try:
+            self.on_level({
+                "rms_db": round(20.0 * math.log10(rms + 1e-12), 1),
+                "peak_db": round(20.0 * math.log10(peak + 1e-12), 1),
+                "peak": round(peak, 4),
+                "clip": peak >= 0.999,
+            })
+        except Exception:
+            pass
 
     def configure_waterfall(self, **settings) -> dict:
         """Update spectrogram settings; applies live if RX is running.
@@ -204,6 +242,9 @@ class AudioEngine:
                 return
             self.fs = fs or self.fs
             self.pset_id = pset_id or self.pset_id
+            self._lvl_sumsq = self._lvl_peak = 0.0
+            self._lvl_n = 0
+            self._lvl_step = max(1, self.fs // 20)
             self._receiver = RealtimeReceiver(
                 self.engine, on_packet=self.on_packet, pset_id=self.pset_id,
                 fs=self.fs, doppler=doppler, verify=self.verify, on_event=self.on_event)
@@ -217,6 +258,7 @@ class AudioEngine:
                     self._receiver.feed(x)
                 if self._waterfall:
                     self._waterfall.feed(x)
+                self._accumulate_level(x)
 
             self._in_stream = sd.InputStream(
                 samplerate=self.fs, channels=1, dtype="float32",
