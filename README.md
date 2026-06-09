@@ -27,7 +27,7 @@ spectrogram settings, CLI, Python API, the air interface, configuration, and tro
 
 ```
             ┌─────────────┐   raw f32    ┌────────────────────┐
- mic  ──────▶ sounddevice ─────────────▶ │ janus-rx (stdin)   │── stderr dump ──▶ parsed
+ mic  ──────▶ sounddevice ─────────────▶│ janus-rx (stdin)   │── stderr dump ──▶ parsed
             │  capture    │   (paced)    │  reference decoder │                   packets
             └──────┬──────┘              └────────────────────┘
                    │ same frames
